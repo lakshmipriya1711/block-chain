@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { verifyCredential } from './services/api';
+import { login, signUp } from './services/auth';
+import { uploadDocument, verifyUploadedDocument } from './services/documents';
 
 const sampleCredential = {
   id: 'VD-2024-8842',
@@ -21,6 +23,14 @@ function App() {
   const [result, setResult] = useState(sampleCredential);
   const [status, setStatus] = useState('ready');
   const [activeNav, setActiveNav] = useState('Verify');
+  const [authMode, setAuthMode] = useState(null);
+  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+  const [authMessage, setAuthMessage] = useState('');
+  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('veridoc-user') || 'null'));
+  const [documentFile, setDocumentFile] = useState(null);
+  const [documentId, setDocumentId] = useState('');
+  const [documentResult, setDocumentResult] = useState(null);
+  const [documentMessage, setDocumentMessage] = useState('');
 
   async function handleVerify(event) {
     event.preventDefault();
@@ -36,8 +46,52 @@ function App() {
   }
 
   function handleIssue() {
-    setActiveNav('Issue');
-    document.getElementById('issue')?.scrollIntoView({ behavior: 'smooth' });
+    setActiveNav('Documents');
+    document.getElementById('documents')?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  async function handleAuth(event) {
+    event.preventDefault();
+    setAuthMessage('');
+    try {
+      const response = authMode === 'signup' ? await signUp(authForm) : await login({ email: authForm.email, password: authForm.password });
+      localStorage.setItem('veridoc-token', response.token);
+      localStorage.setItem('veridoc-user', JSON.stringify(response.user));
+      setUser(response.user);
+      setAuthMode(null);
+      setAuthForm({ name: '', email: '', password: '' });
+    } catch (error) {
+      setAuthMessage(error.message);
+    }
+  }
+
+  async function handleUpload(event) {
+    event.preventDefault();
+    setDocumentMessage('');
+    if (!user) return setDocumentMessage('Please sign in before uploading a document.');
+    if (!documentFile) return setDocumentMessage('Choose a PDF file first.');
+    try {
+      const response = await uploadDocument(documentFile, localStorage.getItem('veridoc-token'));
+      setDocumentId(response.id);
+      setDocumentResult(response);
+      setDocumentMessage(response.message);
+    } catch (error) {
+      setDocumentResult(null);
+      setDocumentMessage(error.message);
+    }
+  }
+
+  async function handleDocumentVerify(event) {
+    event.preventDefault();
+    setDocumentMessage('');
+    try {
+      const response = await verifyUploadedDocument(documentId.trim());
+      setDocumentResult(response);
+      setDocumentMessage('Document found and verified.');
+    } catch (error) {
+      setDocumentResult(null);
+      setDocumentMessage(error.message);
+    }
   }
 
   return (
@@ -47,11 +101,11 @@ function App() {
           <span className="brand-mark">V</span><span>Veridoc</span>
         </a>
         <nav className="nav-links" aria-label="Primary navigation">
-          {['Verify', 'Issue', 'Ledger', 'Trust'].map((item) => (
-            <a key={item} className={activeNav === item ? 'active' : ''} href={item === 'Verify' ? '#verify' : item === 'Issue' ? '#issue' : `#${item.toLowerCase()}`} onClick={() => setActiveNav(item)}>{item}</a>
+          {['Verify', 'Documents', 'Ledger', 'Trust'].map((item) => (
+            <a key={item} className={activeNav === item ? 'active' : ''} href={item === 'Verify' ? '#verify' : `#${item.toLowerCase()}`} onClick={() => setActiveNav(item)}>{item}</a>
           ))}
         </nav>
-        <button className="access-button" onClick={() => setActiveNav('Issue')}>Get access</button>
+        <button className="access-button" onClick={() => setAuthMode('login')}>{user ? user.name.split(' ')[0] : 'Get access'}</button>
       </header>
 
       <section className="hero" id="top">
@@ -103,7 +157,18 @@ function App() {
         <div className="holder-grid"><article><h3>Institutions</h3><p>Issue from a registrar console with signing keys and full audit logs.</p></article><article><h3>Students</h3><p>Carry a wallet of verified diplomas and share them with a single link.</p></article><article><h3>Verifiers</h3><p>Employers and boards confirm any credential against the ledger.</p></article></div>
       </section>
 
+      <section className="document-section" id="documents">
+        <div><span className="eyebrow"><span className="live-dot" /> Document vault</span><h2>Upload a PDF. Verify its seal.</h2><p>Upload a diploma, transcript, or certificate and we will create a document ID and SHA-256 proof.</p></div>
+        <div className="document-tools">
+          <form onSubmit={handleUpload} className="upload-box"><label htmlFor="document-file">Choose a PDF</label><input id="document-file" type="file" accept="application/pdf,.pdf" onChange={(event) => setDocumentFile(event.target.files?.[0] || null)} /><span>{documentFile ? documentFile.name : 'PDF files up to 10 MB'}</span><button className="auth-submit" type="submit">Upload and verify</button></form>
+          <form onSubmit={handleDocumentVerify} className="document-lookup"><label htmlFor="document-id">Verify an uploaded document</label><div><input id="document-id" value={documentId} onChange={(event) => setDocumentId(event.target.value)} placeholder="DOC-XXXXXXXXXX" /><button type="submit">Check</button></div></form>
+          {documentMessage && <p className={documentResult ? 'document-success' : 'auth-error'}>{documentMessage}</p>}
+          {documentResult && <div className="document-result"><strong>✓ VERIFIED</strong><span>{documentResult.fileName}</span><code>{documentResult.id}</code><small>SHA-256: {documentResult.sha256}</small></div>}
+        </div>
+      </section>
+
       <footer><span>© 2026 Veridoc — trust, anchored.</span><div><a href="#top">Docs</a><a href="#ledger">API</a><a href="#trust">Security</a></div></footer>
+      {authMode && <div className="auth-overlay" role="dialog" aria-modal="true" aria-label="Account access"><form className="auth-card" onSubmit={handleAuth}><button type="button" className="close-auth" onClick={() => setAuthMode(null)} aria-label="Close">×</button><span className="eyebrow"><span className="live-dot" /> Secure access</span><h2>{authMode === 'signup' ? 'Create your account' : 'Welcome back'}</h2><p>Use your Veridoc account to issue and manage credentials.</p>{authMode === 'signup' && <input placeholder="Full name" value={authForm.name} onChange={(event) => setAuthForm({ ...authForm, name: event.target.value })} required /> }<input type="email" placeholder="Email address" value={authForm.email} onChange={(event) => setAuthForm({ ...authForm, email: event.target.value })} required /><input type="password" placeholder="Password (8+ characters)" minLength="8" value={authForm.password} onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })} required /><button className="auth-submit" type="submit">{authMode === 'signup' ? 'Create account' : 'Sign in'}</button>{authMessage && <div className="auth-error">{authMessage}</div>}<button type="button" className="auth-switch" onClick={() => { setAuthMessage(''); setAuthMode(authMode === 'signup' ? 'login' : 'signup'); }}>{authMode === 'signup' ? 'Already have an account? Sign in' : 'New to Veridoc? Create an account'}</button></form></div>}
     </main>
   );
 }
