@@ -1,0 +1,7 @@
+node_modules/
+artifacts/
+cache/
+frontend/dist/
+.env
+uploads/*
+!uploads/.gitkeep
