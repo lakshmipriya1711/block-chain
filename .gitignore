@@ -5,3 +5,5 @@ frontend/dist/
 .env
 uploads/*
 !uploads/.gitkeep
+data/*.sqlite
+data/*.sqlite-*
